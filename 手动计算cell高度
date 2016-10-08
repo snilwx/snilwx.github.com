@@ -1,0 +1,40 @@
+在开发社区功能的时候，因为用户发表的文字和图片的大小是不确定的，所以cell的高度不能写死了，要自适应，首先我考虑的是使用masonry和UITableView+FDTemplateLayoutCell 这两个框架来实现自适应高度的cell，百度查询到关于使用UITableView+FDTemplateLayoutCell框架的效果
+都还不错，不会卡帧，为了保证在集成的过程中真的没问题，自己写了一个demo，验证了网上的说法，效果挺好的，很流畅。
+顺便提一下，开源项目OSChina的ios客户端也是这样布局的，但是最终效果，滑动页面是屏幕非常卡，我看了下其内存使用情况，大概用了100M。
+我当时的想法是：卡顿是因为每个cell里头像都是切圆角的缘故吧，之前在cocoaChina上看到过有关帖子，在有大量切圆角的cell，快速切换时，会有明显的卡顿现象，所以就继续开始了。
+==========================================================================================================================================
+开发完成之后，不出我所料，页面很卡顿，我首先把cell中切圆角的用户头像的代码部分给注释掉，再次运行。可是这次却是出乎我的意料了，屏幕依然卡顿，这是什么原因呢？查询了一天，毫无结果，网上也无人提出相关问题和回答。这时我开始重新重视了OSChina客户端卡顿的问题了，难道是由于UITableView+FDTemplateLayoutCell这个框架的原因？
+可是本地所写的demo已经验证过了，没有问题，demo和项目的唯一区别在于，数据源的加载方式不同，demo的数据源是本地的plist文件中，图片也是放在本地。而项目中的所有数据都是从服务器网络请求到的。难道网络请求数据是导致卡顿的元凶吗？这个问题有待于进一步的排查。有时间紧迫，只能另换方案，使用手动计算cell高度的方式，只是一种很传统的方式了。
+使用手动计算cell高度的方案是：
+1️⃣。把cell的子控件分为两类，一类是对cell高度有影响的控件，比如“发表动态内容控件”，另一类是不会对cell高度产生影响的子控件，比如头像，昵称，时间，点赞，评论，举报。
+2️⃣。对于不会对cell高度产生决定性的影响的子控件，比较简单，在初始化的方法中，先创建出来，在layoutSubviews方法中，采用自动布局的方式，用masonry添加约束即可（为什么要重写layoutSubviews方法，在layoutSubviews方法中添加约束，待会儿再说，哈哈），
+3️⃣。对于那些会造成cell高度变化的子控件，在设置数据源set方法中，拿到数据后，便可以计算出该控件的高度，然后将控件创建出来，添加到cell上，使用masonry进行添加约束即可，约束中控件的size就设置成根据内容计算出来的大小。（注意由于cell涉及到重用的问题，所以在创建该子控件之前应该做一个判断，如果该子控件已经存在，则将该子控件从父视图中移除，然后再重新创建添加到父视图中）
+4️⃣。根据以上的步骤，即可知道cell中所有子控件的高度了，然后将他们累加起来即可，如果影响cell高度的子控件有多个，也可以在每次创建一个这样的子控件的时候对cell高度height进行累加也行。
+这样计算cell高度的问题变解决了，不过最后是否解决了卡顿的问题，k还得看效果，用事实说话才行，所以不能放松警惕，把项目运行起来，效果和预想的一样，非常流畅，ok一切大功告成，哈哈。
+=======================================================================================================================================
+现在讨论下在初始化cell的时候，调用layoutSubviews方法的原因，首先要说明下layoutSubviews方法。
+
+官方文档解释
+我们先来看看苹果官方文档的解释：
+
+The default implementation of this method does nothing on iOS 5.1 and earlier. Otherwise, the default implementation uses any constraints you have set to determine the size and position of any subviews.
+
+Subclasses can override this method as needed to perform more precise layout of their subviews. You should override this method only if the autoresizing and constraint-based behaviors of the subviews do not offer the behavior you want. You can use your implementation to set the frame rectangles of your subviews directly.
+
+You should not call this method directly. If you want to force a layout update, call the setNeedsLayout method instead to do so prior to the next drawing update. If you want to update the layout of your views immediately, call the layoutIfNeeded method. 
+
+最后一段说，不要直接调用此方法。如果你想强制更新布局，你可以调用setNeedsLayout方法；如果你想立即数显你的views，你需要调用layoutIfNeeded方法。
+
+layoutSubviews作用
+layoutSubviews是对subviews重新布局。比如，我们想更新子视图的位置的时候，可以通过调用layoutSubviews方法，既可以实现对子视图重新布局
+
+1.直接调用setLayoutSubviews。（这个在上面苹果官方文档里有说明）
+2.addSubview的时候。
+3.当view的frame发生改变的时候。
+4.滑动UIScrollView（UITableView）的时候。
+5.旋转Screen会触发父UIView上的layoutSubviews事件。
+6.改变一个UIView大小的时候也会触发父UIView上的layoutSubviews事件。
+
+所以当在滑动UITableView的时候，就会调用setLayoutSubviews方法，我们也知道在滑动tableView的时候，会重用cell，重用cell就涉及到cell数据源的重新赋值，所以在赋值完成后，进行子控件的位置约束更新肯定是必要的，故在添加初始化约束时，放到了setLayoutSubviews方法中。
+
+
